@@ -19,13 +19,12 @@ from PIL import ImageFont as imf
 from typing import Tuple
 
 from log import Log as log
-import matplotlib.font_manager as fm
 
 # Program info
 PROGRAM_VERSION = "2.0"
 
 SUPPORTED_IMAGE_EXTENSIONS = [".png", ".jpeg", ".bmp", ".eps", ".gif", ".jpg", ".im", ".msp", ".pcx", ".ppm", ".spider", ".tiff", ".webp", ".xbm"]
-DEFAULT_DEPTHTEXT_FONT = "FreeSansBold"
+DEFAULT_DEPTHTEXT_FONT = "SourceHanSans-Bold.otf"
 # 查找所有系统字体的文件路径
 FONT_ROOT = "freefont/"
 
@@ -292,7 +291,8 @@ def make_stereogram(parsed_args):
 
 def load_font(font_name, font_size):
     try:
-        fnt = imf.truetype(font_name, font_size)
+        font_path = os.path.join(os.path.dirname(__file__), 'freefont', font_name)
+        fnt = imf.truetype(font_path, font_size)
     except IOError:
         print(f"Failed to load font '{font}'. Using default font.")
         fnt = imf.load_default()
@@ -310,16 +310,32 @@ def make_depth_text(text, font, canvas_size=(800, 600)):
     if font is None:
         font = DEFAULT_DEPTHTEXT_FONT
 
+    # 创建参数字典
+    text_params = {
+        'xy': (0, 0),
+        'text': text,
+        'font': None,
+        'align': 'left',
+        'direction': None,
+        'features': None,
+        'language': None,
+        'spacing': 8,
+        'anchor': None,
+        'stroke_width': 3,
+    }
+
     # 动态调整字体大小
     font_size = 1
     # 尝试使用指定的字体名称创建字体对象
     fnt = load_font(font, font_size)
-    tl, tt, tr, tb = draw.multiline_textbbox((0, 0), text, font=fnt)
+    text_params['font'] = fnt
+    tl, tt, tr, tb = draw.multiline_textbbox(**text_params)
 
     while (tr - tl) < canvas_size[0] * TEXT_FACTOR and (tb - tt) < canvas_size[1] * TEXT_FACTOR:
         font_size += 1
         fnt = load_font(font, font_size)
-        tl, tt, tr, tb = draw.multiline_textbbox((0, 0), text, font=fnt)
+        text_params['font'] = fnt
+        tl, tt, tr, tb = draw.multiline_textbbox(**text_params)
 
     # 计算文本的位置以居中
     text_position = (
@@ -327,13 +343,10 @@ def make_depth_text(text, font, canvas_size=(800, 600)):
         canvas_size[1] // 2 - (tb - tt) // 2
     )
 
+    text_params['xy'] = text_position
+    text_params['fill'] = 255
     # 绘制文本
-    draw.multiline_text(
-        text_position,
-        text,
-        font=fnt,
-        fill=255  # 白色
-    )
+    draw.multiline_text(**text_params)
 
     return img
 
@@ -484,12 +497,10 @@ def obtain_args(args_list=None):
                                     help="逗号分隔的十六进制颜色列表。支持多重，例如：fff,ff0000x3 表示 ff0000 的数量是 fff 的三倍。",
                                     type=_valid_colors_list)
 
-    arg_parser.add_argument("--blur", "-b", help="高斯模糊程度", type=_restricted_blur)
+    arg_parser.add_argument("--blur", "-b", help="高斯模糊程度,图片生成默认2，文本默认4", type=_restricted_blur)
     arg_parser.add_argument("--forcedepth", help="强制使用的最大深度", type=_restricted_unit)
     arg_parser.add_argument("--output", "-o", help="存储结果的目录", type=_existent_directory)
-    arg_parser.add_argument("--font", "-f",
-                            help="要使用的字体文件。则字体根目录为freefont '{}'".format(FONT_ROOT),
-                            )
+    arg_parser.add_argument("--font", "-f",help="要使用的字体文件。则字体根目录为freefont '{}'".format(FONT_ROOT))
 
     # 解析命令行参数
     if args_list is None:
@@ -504,7 +515,7 @@ def obtain_args(args_list=None):
     if args.dot_colors and not args.dots:
         arg_parser.error("--dot-colors 只有在设置了 --dots 时才有意义")
     if not args.blur:
-        args.blur = 2 if args.depthmap else 8
+        args.blur = 2 if args.depthmap else 6
     if args.font and not args.text:
         arg_parser.error("--font 只有在使用 --text 时才有意义")
 
@@ -562,7 +573,7 @@ def main(args_list=None):
 
 # 如果是直接运行此脚本，则执行 main 函数
 if __name__ == "__main__":
-    args_list = ["--text", "ABCD\nEFG",  "--pattern", "patterns/jellybeans2.jpg", "--cross"]
+    args_list = ["--text", "钱相皓\n臭宝宝", "--pattern", "patterns/jellybeans2.jpg", "--cross"]
     # args_list = ["--depthmap", "depthmaps/shark.png", "--pattern", "patterns/jellybeans2.jpg", "--cross"]
     main(args_list)
 
