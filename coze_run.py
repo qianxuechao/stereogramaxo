@@ -328,7 +328,7 @@ def load_file(name, type=''):
     return i
 
 
-def success(msg: str) :
+def success(msg: str):
     return {"success": True, "status": 1, "message": msg}
 
 
@@ -348,7 +348,7 @@ class StereoParam:
     dot_colors: Union[str, None] = None
     txt_canvas_size: Tuple[int, int] = (800, 600)
     blur: int = 2
-    forcedepth: float = 0.0
+    forcedepth: Union[float, None] = None
     font: Union[str, None] = None
 
     # 查询属性类型
@@ -464,7 +464,7 @@ def stereo_run(params: StereoParam):
     # 如果没有指定输出文件，则展示临时预览
     log.info("过程在 {0:.2f}s 内成功完成".format(time.time() - t0))
     log.info("未指定输出文件。正在显示临时预览")
-    # show_img(i)
+    i.show()
     return success(f"data:image/png;base64,{image_to_base64(i)}")
 
 
@@ -496,9 +496,15 @@ The return data of the function, which should match the declared output paramete
 """
 
 
+def check_param(param: StereoParam):
+    if param.text:
+        param.blur = 4
+    else:
+        param.blur = 2
+
+
 # def handler(args: Args[Input]) -> Output:
 if __name__ == '__main__':
-
     # 确保字体文件存在
     ensure_font()
 
@@ -517,22 +523,18 @@ if __name__ == '__main__':
     value = "jellybeans.jpg"
     params.set_attribute(attr_name, value)
 
-    attr_name = "txt_canvas_size"
-    value = "(300,200)"
+    attr_name = "wall"
+    value = "false"
     params.set_attribute(attr_name, value)
-    # img_base = stereo_run(params)
-    # return img_base
 
-    # 开始计时
-    t0 = time.time()
-    dm_img = make_depth_text("道生一", None, (300, 200))
-    dm_img = dm_img.filter(ImageFilter.GaussianBlur(2))
+    attr_name = "txt_canvas_size"
+    value = "(800,600)"
+    params.set_attribute(attr_name, value)
+
+    check_param(params)
+    img_base = stereo_run(params)
+    # return img_base
     # 如果没有指定输出文件，则展示临时预览
-    print("过程在 {0:.2f}s 内成功完成".format(time.time() - t0))
+    log.info(img_base)
 
     # return {"success": True, "status": 1, "message": f"不运行咋样"}
-
-
-
-
-

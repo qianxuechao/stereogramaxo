@@ -484,12 +484,12 @@ def stereo_run(args_list=None):
     # 如果没有指定输出文件，则展示临时预览
     log.info("过程在 {0:.2f}s 内成功完成".format(time.time() - t0))
     log.info("未指定输出文件。正在显示临时预览")
-    # show_img(i)
+    i.show()
     return success(f"data:image/png;base64,{image_to_base64(i)}")
 
 
 # 如果是直接运行此脚本，则执行 main 函数
 if __name__ == "__main__":
-    args_list = ["--text", "钱相皓\n臭宝宝", "--pattern", "patterns/abstract1.jpg", "--cross", "--txt_canvas_size", "(300,200)"]
+    args_list = ["--text", "钱相皓\n臭宝宝", "--pattern", "patterns/jellybeans.jpg", "--cross", "--txt_canvas_size", "(800,600)"]
     # args_list = ["--depthmap", "depthmaps/shark.png", "--pattern", "patterns/jellybeans2.jpg", "--cross"]
     log.info(stereo_run(args_list))
