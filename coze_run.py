@@ -1,25 +1,31 @@
+import random
 import os
-import argparse
+import re
 import base64
 import time
-import re
 import requests
 import numpy as np
 
-from dataclasses import dataclass, fields
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
-from typing import Tuple
+from typing import Type, get_args, Any, Tuple, Union, TypeVar, get_args
 from io import BytesIO
-
-# from log import Log as log
+from dataclasses import dataclass, fields
 from loguru import logger as log
 
 # 系统支持的图片类型
 SUPPORTED_IMAGE_EXTENSIONS = [".png", ".jpeg", ".bmp", ".eps", ".gif", ".jpg", ".im", ".msp", ".pcx", ".ppm", ".spider", ".tiff", ".webp", ".xbm"]
+# 模板名称
+PATTERN_NAMES = ['arrows.jpg', 'bubbles.jpg', 'comb.gif', 'cool.jpg', 'damask.png', 'gems.jpg', 'grass1.png', 'grass2.png', 'grass.jpg', 'jellybeans2.png',
+                 'jellybeans.jpg', 'lava2.jpg', 'lava.jpg', 'leaves2.jpg', 'leaves.jpg', 'neon.jpg', 'paint.jpg', 'stars.jpg', 'stones.jpg', 'straw.jpg',
+                 'stripes.jpg', 'tiger.png', 'trippy1.png', 'trippy2.png', 'trippy3.png', 'trippy4.png', 'trippy5.png', 'trippy6.png', 'trippy7.png',
+                 'trippy8.png', 'trippy9.png', 'trippy10.png', 'trippy11.png', 'trippy12.png', 'trippy13.png', 'trippy14.png', 'trippy15.png', 'trippy16.png',
+                 'trippy17.png', 'trippy18.png', 'trippy19.png', 'trippy20.png', 'trippy21.png', 'trippy22.png', 'trippy23.png', 'trippy24.png', 'trippy25.png',
+                 'trippy.png']
 # 默认的字体名称
 DEFAULT_DEPTHTEXT_FONT = "SourceHanSans-Bold.otf"
 # 查找所有系统字体的文件路径
 FONT_ROOT = "freefont/"
+PATTERN_ROOT = "patterns/"
 # 文本占据整个画布的比例
 TEXT_FACTOR = 0.8
 
@@ -119,6 +125,7 @@ def make_stereogram(parsed_args):
     if parsed_args.text:
         dm_img = make_depth_text(parsed_args.text, parsed_args.font, parsed_args.txt_canvas_size)
     else:
+        # TODO:: 这里需要处理，下载和已有两种情况。
         dm_img = load_file(parsed_args.depthmap, "L")
     # 确认 dm_img 是 PIL.Image.Image 类型
     assert isinstance(dm_img, Image.Image), f"dm_img must be of type PIL.Image.Image, got {type(dm_img)} instead."
@@ -146,7 +153,7 @@ def make_stereogram(parsed_args):
                                   else hex_color_to_tuple(parsed_args.dot_bg_color))
     if parsed_args.pattern:
         # 从文件创建图案
-        pattern_raw_img = load_file(parsed_args.pattern)
+        pattern_raw_img = load_file(proj_path(PATTERN_ROOT, parsed_args.pattern))
         # 确认 dm_img 是 PIL.Image.Image 类型
         assert isinstance(pattern_raw_img, Image.Image), f"dm_img must be of type PIL.Image.Image, got {type(dm_img)} instead."
         p_w = pattern_raw_img.size[0]
@@ -229,10 +236,10 @@ def make_stereogram(parsed_args):
 
 def load_font(font_name, font_size):
     try:
-        font_path = os.path.join(os.path.dirname(__file__), 'freefont', font_name)
+        font_path = proj_path(FONT_ROOT, font_name)
         fnt = ImageFont.truetype(font_path, font_size)
     except IOError:
-        print(f"Failed to load font '{font_name}'. Using default font.")
+        log.error(f"Failed to load font '{font_name}'. Using default font.")
         fnt = ImageFont.load_default()
     return fnt
 
@@ -321,28 +328,28 @@ def load_file(name, type=''):
     return i
 
 
-def success(message: str):
-    return {"success": True, "status": 0, "message": message}
+def success(msg: str) :
+    return {"success": True, "status": 1, "message": msg}
 
 
-def error(message: str):
-    return {"success": False, "status": 1, "message": message}
+def error(msg: str):
+    return {"success": False, "status": 1, "message": msg}
 
 
 @dataclass
 class StereoParam:
-    depthmap: str = ""
-    text: str = ""
+    depthmap: Union[str, None] = None
+    text: Union[str, None] = None
     dots: bool = False
-    pattern: str = ""
+    pattern: Union[str, None] = None
     wall: bool = False
-    dot_prob: float = None
-    dot_bg_color: str = None
-    dot_colors: str = None
+    dot_prob: float = 0.0
+    dot_bg_color: Union[str, None] = None
+    dot_colors: Union[str, None] = None
     txt_canvas_size: Tuple[int, int] = (800, 600)
     blur: int = 2
-    forcedepth: float = None
-    font: str = None
+    forcedepth: float = 0.0
+    font: Union[str, None] = None
 
     # 查询属性类型
     @classmethod
@@ -356,22 +363,93 @@ class StereoParam:
         if attr_type is None:
             raise AttributeError(f"Class {StereoParam.__name__} does not have an attribute named '{attr_name}'")
 
-        if attr_type is bool:
-            value = value.lower() in ['true', '1', 'yes']
-        elif attr_type is int:
-            value = int(value)
-        elif attr_type is float:
-            value = float(value)
-        elif attr_type is Tuple[int, int]:
-            value = tuple(map(int, value.strip("()").split(',')))
+        # 处理 Union 类型
+        if hasattr(attr_type, '__origin__') and attr_type.__origin__ is Union:
+            union_args = get_args(attr_type)
+            if value is None and None in union_args:
+                value = None
+            else:
+                # 尝试使用非 None 类型转换值
+                for arg in union_args:
+                    if arg is not None:
+                        try:
+                            value = self.convert_value(arg, value)
+                            break
+                        except (ValueError, TypeError):
+                            continue
+                else:
+                    raise ValueError(f"Cannot convert value '{value}' to any type in Union[{union_args}]")
         else:
-            value = attr_type(value)
-
+            value = self.convert_value(attr_type, value)
         # 设置属性
         setattr(self, attr_name, value)
 
+    @staticmethod
+    def convert_value(attr_type: Type, value: Any) -> Any:
+        if attr_type is bool:
+            return value.lower() in ['true', '1', 'yes']
+        elif attr_type is int:
+            return int(value)
+        elif attr_type is float:
+            return float(value)
+        elif attr_type is tuple or attr_type is Tuple:
+            # 如果 attr_type 是非泛型的 tuple 或 Tuple
+            return tuple(map(int, value.strip("()").split(','))) if '(' in value else attr_type(value)
+        elif hasattr(attr_type, '__origin__') and (attr_type.__origin__ is tuple or attr_type.__origin__ is Tuple):
+            # 如果 attr_type 是 Tuple 泛型类型
+            tuple_args = get_args(attr_type)
+            if tuple_args:
+                parsed_values = re.findall(r'\d+', value.strip("()"))
+                if len(parsed_values) == len(tuple_args):
+                    return tuple(map(lambda t, v: t(v), tuple_args, parsed_values))
+                else:
+                    raise ValueError(f"Incorrect number of values for tuple: expected {len(tuple_args)}, got {len(parsed_values)}")
+            else:
+                # 如果没有具体类型参数，则作为普通字符串处理
+                return tuple(map(int, value.strip("()").split(',')))
+        else:
+            return attr_type(value)
 
-def stereo_run(params: StereoParam = None):
+
+def ensure_font():
+    font_dir = proj_path(FONT_ROOT)
+    if not os.path.exists(font_dir):
+        os.makedirs(font_dir)
+    if not os.path.exists(proj_path(font_dir, DEFAULT_DEPTHTEXT_FONT)):
+        # 发送GET请求获取图片内容
+        response = requests.get(f"https://cdn.lzpkj.com/coze/{DEFAULT_DEPTHTEXT_FONT}")
+        # 检查请求是否成功
+        if response.status_code == 200:
+            # 打开一个文件以二进制写入模式
+            with open(proj_path(font_dir, DEFAULT_DEPTHTEXT_FONT), 'wb') as file:
+                # 将图片内容写入文件
+                file.write(response.content)
+            log.info("字体文件下载成功！")
+        else:
+            log.error("字体下载失败，状态码:", response.status_code)
+    else:
+        # 获取文件大小
+        file_size = os.path.getsize(proj_path(font_dir, DEFAULT_DEPTHTEXT_FONT))
+        log.info(f"字体文件已存在，大小为：{file_size} 字节")
+
+
+def ensure_pattern():
+    pattern_dir = proj_path(PATTERN_ROOT)
+    if not os.path.exists(pattern_dir):
+        os.makedirs(pattern_dir)
+    for pn in PATTERN_NAMES:
+        if not os.path.exists(proj_path(pattern_dir, pn)):
+            # 发送GET请求获取图片内容
+            response = requests.get(f"https://cdn.lzpkj.com/coze/{pn}")
+            # 检查请求是否成功
+            if response.status_code == 200:
+                # 打开一个文件以二进制写入模式
+                with open(proj_path(pattern_dir, pn), 'wb') as file:
+                    # 将图片内容写入文件
+                    file.write(response.content)
+
+
+def stereo_run(params: StereoParam):
     # 记录开始生成的信息
     log.info("--- 开始生成 ---")
     # 获取命令行参数
@@ -390,37 +468,71 @@ def stereo_run(params: StereoParam = None):
     return success(f"data:image/png;base64,{image_to_base64(i)}")
 
 
-# 如果是直接运行此脚本，则执行 main 函数
-if __name__ == "__main__":
-    if not os.path.exists(f"./{FONT_ROOT}"):
-        os.makedirs(f"./{FONT_ROOT}")
-    if not os.path.exists(f"./{FONT_ROOT}{DEFAULT_DEPTHTEXT_FONT}"):
-        # 发送GET请求获取图片内容
-        response = requests.get(f"https://cdn.lzpkj.com/coze/{DEFAULT_DEPTHTEXT_FONT}")
-        # 检查请求是否成功
-        if response.status_code == 200:
-            # 打开一个文件以二进制写入模式
-            with open(f'./{FONT_ROOT}{DEFAULT_DEPTHTEXT_FONT}', 'wb') as file:
-                # 将图片内容写入文件
-                file.write(response.content)
-            log.info("字体文件下载成功！")
-        else:
-            log.error("字体下载失败，状态码:", response.status_code)
+def proj_path(*args):
+    # 获取当前工作目录的绝对路径
+    current_dir = os.path.abspath(".")
+
+    # 检查第一个参数是否为绝对路径
+    if args and os.path.isabs(args[0]):
+        # 如果是绝对路径并且与当前工作目录相同，则移除第一个参数
+        return os.path.join(*args)
+
+    # 将当前工作目录与传入的路径段组合
+    return os.path.join(current_dir, *args)
 
 
-    # 创建一个 StereoParam 对象
+"""
+Each file needs to export a function named `handler`. This function is the entrance to the Tool.
+
+Parameters:
+args: parameters of the entry function.
+args.input - input parameters, you can get test input value by args.input.xxx.
+args.logger - logger instance used to print logs, injected by runtime.
+
+Remember to fill in input/output in Metadata, it helps LLM to recognize and use tool.
+
+Return:
+The return data of the function, which should match the declared output parameters.
+"""
+
+
+# def handler(args: Args[Input]) -> Output:
+if __name__ == '__main__':
+
+    # 确保字体文件存在
+    ensure_font()
+
+    # 确保图片模板存在
+    ensure_pattern()
+
+    # return {"success":True,"status":1,"message":f"图片模板也有{file_names}"}
+    # 如果是直接运行此脚本，则执行 main 函数
     params = StereoParam()
     # 示例使用
     attr_name = "text"
-    value = "钱相皓\n臭宝宝"
+    value = "道生一"
     params.set_attribute(attr_name, value)
 
     attr_name = "pattern"
-    value = "patterns/abstract1.jpg"
+    value = "jellybeans.jpg"
     params.set_attribute(attr_name, value)
 
     attr_name = "txt_canvas_size"
     value = "(300,200)"
     params.set_attribute(attr_name, value)
+    # img_base = stereo_run(params)
+    # return img_base
 
-    log.info(stereo_run(params))
+    # 开始计时
+    t0 = time.time()
+    dm_img = make_depth_text("道生一", None, (300, 200))
+    dm_img = dm_img.filter(ImageFilter.GaussianBlur(2))
+    # 如果没有指定输出文件，则展示临时预览
+    print("过程在 {0:.2f}s 内成功完成".format(time.time() - t0))
+
+    # return {"success": True, "status": 1, "message": f"不运行咋样"}
+
+
+
+
+
