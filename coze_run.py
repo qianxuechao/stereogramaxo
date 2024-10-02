@@ -26,6 +26,7 @@ DEFAULT_DEPTHTEXT_FONT = "SourceHanSans-Bold.otf"
 # 查找所有系统字体的文件路径
 FONT_ROOT = "freefont/"
 PATTERN_ROOT = "patterns/"
+DEPTHMAP_ROOT = "depthmaps/"
 # 文本占据整个画布的比例
 TEXT_FACTOR = 0.8
 
@@ -121,12 +122,22 @@ def redistribute_grays(img_object: Image.Image, gray_height: float) -> Image.Ima
 
 
 def make_stereogram(parsed_args):
+    def download_image(url):
+        response = requests.get(url)
+        if response.status_code == 200:
+            # 使用 BytesIO 处理二进制内容
+            image = Image.open(BytesIO(response.content))
+            return image
+        else:
+            raise ValueError(f"下载图片出错,URL:{url},Code: {response.status_code}")
     # 加载或创建立体图深度图
     if parsed_args.text:
         dm_img = make_depth_text(parsed_args.text, parsed_args.font, parsed_args.txt_canvas_size)
     else:
-        # TODO:: 这里需要处理，下载和已有两种情况。
-        dm_img = load_file(parsed_args.depthmap, "L")
+        if parsed_args.depthmap.startswith("http"):
+            dm_img = download_image(parsed_args.depthmap)
+        else:
+            dm_img = load_file(proj_path(DEPTHMAP_ROOT, parsed_args.depthmap), "L")
     # 确认 dm_img 是 PIL.Image.Image 类型
     assert isinstance(dm_img, Image.Image), f"dm_img must be of type PIL.Image.Image, got {type(dm_img)} instead."
 
