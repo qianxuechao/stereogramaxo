@@ -4,6 +4,7 @@ import re
 import base64
 import time
 import requests
+import math
 import numpy as np
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
@@ -127,9 +128,19 @@ def make_stereogram(parsed_args):
         if response.status_code == 200:
             # 使用 BytesIO 处理二进制内容
             image = Image.open(BytesIO(response.content))
+            # 计算新的尺寸，确保最长边不超过1920像素
+            max_size = 1024
+            if image.width > max_size or image.height > max_size:
+                ratio = min(max_size / image.width, max_size / image.height)
+                new_width = int(image.width * ratio)
+                new_height = int(image.height * ratio)
+                image.thumbnail((new_width, new_height), resample=Image.LANCZOS)
+            # 将图像转换为灰度图
+            image = image.convert('L')
             return image
         else:
             raise ValueError(f"下载图片出错,URL:{url},Code: {response.status_code}")
+
     # 加载或创建立体图深度图
     if parsed_args.text:
         dm_img = make_depth_text(parsed_args.text, parsed_args.font, parsed_args.txt_canvas_size)
@@ -235,6 +246,7 @@ def make_stereogram(parsed_args):
     canvas_img.paste(pattern_strip_img, (int(dm_center_x), 0, int(dm_center_x + pattern_width), canvas_img.size[1]))
     if not parsed_args.wall:
         canvas_img.paste(pattern_strip_img, (int(dm_center_x - pattern_width), 0, int(dm_center_x), canvas_img.size[1]))
+    canvas_img = add_watermark(canvas_img, font_size=26, angle=45, watermark_color=(255, 255, 255, 115))
     shift_pixels(dm_center_x, dm_img, canvas_img, 1)
     shift_pixels(dm_center_x + pattern_width, dm_img, canvas_img, -1)
 
@@ -242,6 +254,54 @@ def make_stereogram(parsed_args):
     if parsed_args.pattern:
         canvas_img = canvas_img.resize((int(canvas_img.size[0] / OVERSAMPLE), int(canvas_img.size[1] / OVERSAMPLE)),
                                        Image.Resampling.LANCZOS)  # NEAREST, BILINEAR, BICUBIC, LANCZOS
+
+    return add_watermark(canvas_img, font_size=50, angle=-45, watermark_color=(0, 0, 0, 20))
+    # return canvas_img
+
+
+def add_watermark(canvas_img, watermark_text="扣子智能体三维立体画自助生成", font_size=30, angle=45, watermark_color=(255, 255, 255, 80)):
+    """
+    给图像添加水印。
+
+    参数:
+    canvas_img: Image对象，需要添加水印的图像。
+    watermark_text: str，水印文本，默认为"扣子三维立体画自助生成"。
+    font_size: int，字体大小，默认为30。
+    angle: int，水印旋转角度，默认为45度。
+    watermark_color: tuple，水印颜色，默认为半透明白色。
+
+    返回:
+    Image对象，添加水印后的图像。
+    """
+    line_space = 30
+    column_space = 50
+
+    # 加载字体（需要一个字体文件）
+    font = load_font(DEFAULT_DEPTHTEXT_FONT, font_size)
+    # 创建绘图对象
+    draw = ImageDraw.Draw(canvas_img)
+    # 获取文本尺寸
+    tl, tt, tr, tb = draw.multiline_textbbox((0, 0), watermark_text, font=font, spacing=line_space, align='center')
+    text_width = int(tr - tl)
+    text_height = int(tb - tt)
+
+    # 确定水印旋转后的最小包围矩形
+    temp_img = Image.new('RGBA', (text_width, text_height), (0, 0, 0, 0))
+    temp_draw = ImageDraw.Draw(temp_img)
+    temp_draw.multiline_text((0, 0), watermark_text, font=font, fill=watermark_color, spacing=line_space, align='center')
+    temp_img = temp_img.rotate(angle, expand=True)
+    rotated_box_w, rotated_box_h = temp_img.size
+    rotated_box_w = rotated_box_w + column_space
+    rotated_box_h = rotated_box_h + line_space
+
+    # 在图片上绘制旋转后的文本
+    for x in range(0, canvas_img.width, rotated_box_w):
+        for y in range(0, canvas_img.height, rotated_box_h):
+            # 确保不会超出边界
+            if x + rotated_box_w <= canvas_img.width and y + rotated_box_h <= canvas_img.height:
+                # 将临时图像粘贴到原图
+                canvas_img.paste(temp_img, (x, y), temp_img)
+
     return canvas_img
 
 
@@ -509,7 +569,7 @@ The return data of the function, which should match the declared output paramete
 
 def check_param(param: StereoParam):
     if param.text:
-        param.blur = 4
+        param.blur = 6
     else:
         param.blur = 2
 
@@ -526,8 +586,8 @@ if __name__ == '__main__':
     # 如果是直接运行此脚本，则执行 main 函数
     params = StereoParam()
     # 示例使用
-    attr_name = "text"
-    value = "道生一"
+    attr_name = "depthmap"
+    value = "https://p6-bot-sign.byteimg.com/tos-cn-i-v4nquku3lp/0fc0a0f7b5b94a79b742ef14a12611f3.png~tplv-v4nquku3lp-image.image?rk3s=68e6b6b5&x-expires=1730487359&x-signature=GDzfVUzkcrq%2FQkcm9ptTRHOd8lE%3D"
     params.set_attribute(attr_name, value)
 
     attr_name = "pattern"
