@@ -181,7 +181,7 @@ def make_stereogram(parsed_args):
         p_w = pattern_raw_img.size[0]
         p_h = pattern_raw_img.size[1]
         # 调整到条纹宽度
-        pattern_raw_img = pattern_raw_img.resize((pattern_width, (int)((pattern_width * 1.0 / p_w) * p_h)), Image.Resampling.LANCZOS)
+        pattern_raw_img = pattern_raw_img.resize((pattern_width, int((pattern_width * 1.0 / p_w) * p_h)), Image.Resampling.LANCZOS)
         # 垂直重复
         region = pattern_raw_img.crop((0, 0, pattern_raw_img.size[0], pattern_raw_img.size[1]))
         y = 0
@@ -243,10 +243,10 @@ def make_stereogram(parsed_args):
 
     # 粘贴第一个图案
     dm_center_x = dm_img.size[0] / 2
+    pattern_strip_img = add_watermark(pattern_strip_img, watermark_color=(255, 255, 255, 180 if parsed_args.dots else 128))
     canvas_img.paste(pattern_strip_img, (int(dm_center_x), 0, int(dm_center_x + pattern_width), canvas_img.size[1]))
     if not parsed_args.wall:
         canvas_img.paste(pattern_strip_img, (int(dm_center_x - pattern_width), 0, int(dm_center_x), canvas_img.size[1]))
-    canvas_img = add_watermark(canvas_img, font_size=26, angle=45, watermark_color=(255, 255, 255, 115))
     shift_pixels(dm_center_x, dm_img, canvas_img, 1)
     shift_pixels(dm_center_x + pattern_width, dm_img, canvas_img, -1)
 
@@ -255,11 +255,25 @@ def make_stereogram(parsed_args):
         canvas_img = canvas_img.resize((int(canvas_img.size[0] / OVERSAMPLE), int(canvas_img.size[1] / OVERSAMPLE)),
                                        Image.Resampling.LANCZOS)  # NEAREST, BILINEAR, BICUBIC, LANCZOS
 
-    return add_watermark(canvas_img, font_size=50, angle=-45, watermark_color=(0, 0, 0, 20))
-    # return canvas_img
+    wt = '作者: 扣子Bot-三维立体画'
+    if parsed_args.text:
+        wt = f"{wt} 内容：{parsed_args.text} "
+    else:
+        wt = f"{wt} 内容：用户图 "
+    if parsed_args.pattern:
+        wt = f'{wt} 构图: {parsed_args.pattern}'
+    else:
+        wt = f'{wt} 构图: dots'
+    if parsed_args.wall:
+        wt = f'{wt} 模式: 平行眼'
+    else:
+        wt = f'{wt} 模式: 交叉眼'
+
+    canvas_img = add_watermark(canvas_img, watermark_text=wt, watermark_color=(255, 255, 255, 255), tag=True)
+    return canvas_img
 
 
-def add_watermark(canvas_img, watermark_text="扣子智能体三维立体画自助生成", font_size=30, angle=45, watermark_color=(255, 255, 255, 80)):
+def add_watermark(canvas_img, watermark_text="扣子智能体\n【 三维立体画 】自助生成", angle=0, watermark_color=(255, 255, 255, 80), tag=False):
     """
     给图像添加水印。
 
@@ -273,34 +287,47 @@ def add_watermark(canvas_img, watermark_text="扣子智能体三维立体画自�
     返回:
     Image对象，添加水印后的图像。
     """
-    line_space = 30
-    column_space = 50
+    line_space = 10
+    font_size = 30
+    text_align = "center"
+    cw, ch = canvas_img.width, canvas_img.height
 
     # 加载字体（需要一个字体文件）
     font = load_font(DEFAULT_DEPTHTEXT_FONT, font_size)
     # 创建绘图对象
     draw = ImageDraw.Draw(canvas_img)
     # 获取文本尺寸
-    tl, tt, tr, tb = draw.multiline_textbbox((0, 0), watermark_text, font=font, spacing=line_space, align='center')
-    text_width = int(tr - tl)
-    text_height = int(tb - tt)
+    tl, tt, tr, tb = draw.multiline_textbbox((0, 0), watermark_text, font=font, spacing=line_space, align=text_align)
+    tw = int(tr - tl)
+    th = int(tb - tt)
 
     # 确定水印旋转后的最小包围矩形
-    temp_img = Image.new('RGBA', (text_width, text_height), (0, 0, 0, 0))
-    temp_draw = ImageDraw.Draw(temp_img)
-    temp_draw.multiline_text((0, 0), watermark_text, font=font, fill=watermark_color, spacing=line_space, align='center')
-    temp_img = temp_img.rotate(angle, expand=True)
-    rotated_box_w, rotated_box_h = temp_img.size
-    rotated_box_w = rotated_box_w + column_space
-    rotated_box_h = rotated_box_h + line_space
+    txt_image = Image.new('RGBA', (tw, th), (0, 0, 0, 100 if tag else 0))
+    temp_draw = ImageDraw.Draw(txt_image)
+    temp_draw.multiline_text((0, 0), watermark_text, font=font, fill=watermark_color, spacing=line_space, align=text_align)
 
-    # 在图片上绘制旋转后的文本
-    for x in range(0, canvas_img.width, rotated_box_w):
-        for y in range(0, canvas_img.height, rotated_box_h):
-            # 确保不会超出边界
-            if x + rotated_box_w <= canvas_img.width and y + rotated_box_h <= canvas_img.height:
-                # 将临时图像粘贴到原图
-                canvas_img.paste(temp_img, (x, y), temp_img)
+    if tag:
+        txt_image = txt_image.resize((int(cw / 2), int(cw / 2 / tw * th)), Image.Resampling.LANCZOS)
+        canvas_img.paste(txt_image, (5, 5), txt_image)
+        return canvas_img
+
+    # 确保不会超出边界
+    y = 0
+    while y <= ch:
+        r_angle = angle
+        if angle <= 0:
+            r_angle = random.randint(15, 40) * random.choice([-1, 1])
+        rotate_image = create_arc_layout(txt_image)
+        rotate_image = rotate_image.rotate(r_angle, expand=True)
+        rw, rh = rotate_image.size
+        ratio = 1 + random.uniform(-0.2, 0.2)
+        to_w, to_h = int(cw * ratio), int(cw / rw * rh * ratio)
+        rotate_image = rotate_image.resize((to_w, to_h), Image.Resampling.LANCZOS)
+        rw, rh = rotate_image.size
+
+        # 将临时图像粘贴到原图
+        canvas_img.paste(rotate_image, (0, y), mask=rotate_image)
+        y = y + rh + random.randint(0, th)
 
     return canvas_img
 
@@ -337,7 +364,7 @@ def make_depth_text(text, font, canvas_size=(800, 600)):
         'language': None,
         'spacing': 8,
         'anchor': None,
-        'stroke_width': 3,
+        'stroke_width': 1,
     }
 
     # 动态调整字体大小
@@ -574,6 +601,41 @@ def check_param(param: StereoParam):
         param.blur = 2
 
 
+def create_arc_layout(image):
+    """ 把图像变成S形的扭曲后的图形(以横向为轴) """
+    # 获取原始图像的宽度和高度
+    original_width, original_height = image.size
+
+    # 定义半圆弧的最大偏移量（即半径）
+    radius = original_width // 8
+
+    # 计算新图像的高度，使其足以包含变形后的所有像素
+    max_height = radius * 2 + original_height
+    # 创建一个新的图像，背景为黑色，宽度与原始图像相同，高度为计算出的最大高度
+    new_image = Image.new('RGBA', (original_width, max_height), color=(0, 0, 0, 0))
+
+    direction = random.choice([-1, 1])
+    # 对原始图像进行切割，并将每一列像素重新排列成弧形
+    for i in range(original_width):
+        # 提取单像素宽度的子图像
+        sub_image = image.crop((i, 0, i + 1, original_height))
+
+        # 计算当前像素列的位置在新图像中的y坐标
+        # 角度从0到π，对应于图像从左到右
+        angle = math.pi * i / original_width
+        # 计算基于sin函数的y坐标，使得图像呈现弧形效果
+        arc_y = int((max_height - original_height) / 2 + radius * math.sin(angle) * direction)
+
+        # x坐标保持不变，因为每一列像素仍然位于相同的水平位置
+        arc_x = i
+
+        # 将子图像粘贴到新位置
+        new_image.paste(sub_image, (arc_x, arc_y))
+
+    # 返回创建的新图像
+    return new_image
+
+
 # def handler(args: Args[Input]) -> Output:
 if __name__ == '__main__':
     # 确保字体文件存在
@@ -586,13 +648,15 @@ if __name__ == '__main__':
     # 如果是直接运行此脚本，则执行 main 函数
     params = StereoParam()
     # 示例使用
-    attr_name = "depthmap"
-    value = "https://p6-bot-sign.byteimg.com/tos-cn-i-v4nquku3lp/0fc0a0f7b5b94a79b742ef14a12611f3.png~tplv-v4nquku3lp-image.image?rk3s=68e6b6b5&x-expires=1730487359&x-signature=GDzfVUzkcrq%2FQkcm9ptTRHOd8lE%3D"
-    params.set_attribute(attr_name, value)
+    # attr_name = "depthmap"
+    # value = "https://p6-bot-sign.byteimg.com/tos-cn-i-v4nquku3lp/0fc0a0f7b5b94a79b742ef14a12611f3.png~tplv-v4nquku3lp-image.image?rk3s=68e6b6b5&x-expires=1730487359&x-signature=GDzfVUzkcrq%2FQkcm9ptTRHOd8lE%3D"
+    # params.set_attribute(attr_name, value)
+    params.text = '我爱你'
 
-    attr_name = "pattern"
-    value = "jellybeans.jpg"
-    params.set_attribute(attr_name, value)
+    # attr_name = "pattern"
+    # value = "jellybeans.jpg"
+    # params.set_attribute(attr_name, value)
+    params.dots = True
 
     attr_name = "wall"
     value = "false"
@@ -608,4 +672,39 @@ if __name__ == '__main__':
     # 如果没有指定输出文件，则展示临时预览
     log.info(img_base)
 
-    # return {"success": True, "status": 1, "message": f"不运行咋样"}
+# return {"success": True, "status": 1, "message": f"不运行咋样"}
+
+
+#
+# def main():
+#     watermark_text = "扣子智能体三维立体画自助生成"
+#     line_space = 10
+#
+#     # 加载图像
+#     font = load_font(DEFAULT_DEPTHTEXT_FONT, 30)
+#     temp_img = Image.new('RGBA', (1, 1), (0, 0, 0, 0))
+#     # 创建绘图对象
+#     draw = ImageDraw.Draw(temp_img)
+#     # 获取文本尺寸
+#     tl, tt, tr, tb = draw.multiline_textbbox((0, 0), watermark_text, font=font, spacing=line_space, align='center')
+#     text_width = int(tr - tl)
+#     text_height = int(tb - tt)
+#
+#     # 确定水印旋转后的最小包围矩形
+#     temp_img = Image.new('RGBA', (text_width, text_height), (0, 0, 0, 0))
+#     temp_draw = ImageDraw.Draw(temp_img)
+#     temp_draw.multiline_text((0, 0), watermark_text, font=font, fill=(255, 255, 255, 250), spacing=line_space, align='center')
+#     # temp_img = temp_img.rotate(angle, expand=True)
+#     # rotated_box_w, rotated_box_h = temp_img.size
+#     # rotated_box_w = rotated_box_w + column_space
+#     # rotated_box_h = rotated_box_h + line_space
+#     temp_img.show()
+#     # 应用S形扭曲
+#     twisted_img = create_arc_layout(temp_img)
+#
+#     # 保存扭曲后的图像
+#     twisted_img.show()
+#
+#
+# if __name__ == "__main__":
+#     main()
